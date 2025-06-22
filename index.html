@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>YouTube Playlist Pro</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link href="https://cdn.jsdelivr.net/npm/vuetify@3.5.13/dist/vuetify.min.css" rel="stylesheet" />
+  <style>
+    html, body, #app {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+    }
+    .hoverable-card {
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    .hoverable-card:hover {
+      transform: scale(1.02);
+    }
+    #yt-player {
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app">
+    <v-app>
+      <v-main>
+        <v-container fluid class="pa-2">
+          <!-- Controls -->
+          <v-row class="mb-2" align="center">
+            <v-col cols="12" md="6">
+              <v-text-field v-model="newUrl" label="Add YouTube URL" @keyup.enter="addVideo" clearable density="compact" prepend-inner-icon="mdi-youtube"></v-text-field>
+              <v-combobox v-model="newTags" label="Tags" multiple clearable chips small-chips class="mt-2"></v-combobox>
+            </v-col>
+            <v-col cols="12" md="6" class="d-flex flex-wrap gap-2 justify-end">
+              <v-btn @click="addVideo" color="primary">Add</v-btn>
+              <v-btn @click="toggleTheme">Toggle Dark</v-btn>
+              <v-btn @click="shuffleVideos">Shuffle</v-btn>
+              <v-btn @click="toggleMute">{{ isMuted ? 'Unmute' : 'Mute' }}</v-btn>
+              <v-btn @click="exportPlaylist">Export</v-btn>
+              <v-btn @click="importing = true">Import</v-btn>
+              <v-btn v-if="currentVideoId && !playerExpanded" @click="playerExpanded = true">Expand</v-btn>
+            </v-col>
+          </v-row>
+
+          <!-- Video Player -->
+          <v-sheet
+            v-if="currentVideoId"
+            :style="playerExpanded 
+              ? 'position: fixed; inset: 0; z-index: 999; background-color: black;' 
+              : 'position: fixed; bottom: 16px; right: 16px; width: 320px; height: 180px; z-index: 998; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.5); background-color: black;'"
+          >
+            <div id="yt-player"></div>
+            <v-row
+              v-if="playerExpanded"
+              class="pa-2 justify-end"
+              style="position: absolute; top: 0; right: 0; background: rgba(0,0,0,0.5);"
+            >
+              <v-btn variant="text" @click="playerExpanded = false" color="blue">Minimize</v-btn>
+              <v-btn variant="text" color="red" @click="closeVideo">Close</v-btn>
+            </v-row>
+          </v-sheet>
+
+          <!-- Playlist -->
+          <draggable v-model="videos" item-key="url" handle=".drag-handle" class="d-flex flex-wrap">
+            <template #item="{ element, index }">
+              <v-card class="ma-2 hoverable-card" width="260" elevation="3" @click="selectVideo(element)">
+                <v-img :src="getThumbnail(element.url)" height="140"></v-img>
+                <v-card-title class="text-truncate" style="font-size: 0.9rem">
+                  {{ element.title || element.id }}
+                </v-card-title>
+                <v-card-subtitle v-if="element.tags && element.tags.length" class="px-2">
+                  <v-chip v-for="tag in element.tags" :key="tag" size="x-small" class="ma-1" color="blue-lighten-3">
+                    {{ tag }}
+                  </v-chip>
+                </v-card-subtitle>
+                <v-card-actions class="justify-space-between">
+                  <span class="drag-handle" style="cursor: move; color: grey;">Drag</span>
+                  <v-btn size="small" @click.stop="toggleFavorite(element)" color="yellow">{{ element.favorite ? '★' : '☆' }}</v-btn>
+                  <v-btn size="small" @click.stop="removeVideo(index)" color="red">Delete</v-btn>
+                </v-card-actions>
+              </v-card>
+            </template>
+          </draggable>
+        </v-container>
+
+        <!-- Import Dialog -->
+        <v-dialog v-model="importing" width="600">
+          <v-card>
+            <v-card-title>Import Playlist JSON</v-card-title>
+            <v-card-text>
+              <v-textarea v-model="importData" label="Paste JSON here" rows="6"></v-textarea>
+            </v-card-text>
+            <v-card-actions>
+              <v-btn color="primary" @click="handleImport">Import</v-btn>
+              <v-spacer></v-spacer>
+              <v-btn text @click="importing = false">Cancel</v-btn>
+            </v-card-actions>
+          </v-card>
+        </v-dialog>
+      </v-main>
+    </v-app>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/vue@3.4.27/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vuetify@3.5.13/dist/vuetify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vuedraggable@4.1.0/dist/vuedraggable.umd.min.js"></script>
+  <script src="https://www.youtube.com/iframe_api"></script>
+
+  <script>
+    const { createApp } = Vue;
+    const { createVuetify } = Vuetify;
+    const draggable = window.vuedraggable;
+
+    const vuetify = createVuetify({
+      theme: {
+        defaultTheme: 'light',
+        themes: {
+          light: { dark: false },
+          dark: { dark: true },
+        }
+      }
+    });
+
+    const app = createApp({
+      components: { draggable },
+      data() {
+        return {
+          newUrl: "",
+          newTags: [],
+          videos: [],
+          currentVideoId: null,
+          playerExpanded: true,
+          darkMode: false,
+          isMuted: false,
+          importing: false,
+          importData: "",
+          player: null,
+          lastTimestamps: {},
+        };
+      },
+      mounted() {
+        this.loadFromStorage();
+        this.lastTimestamps = JSON.parse(localStorage.getItem('yt_last_times') || '{}');
+
+        // Auto dark mode
+        const matchDark = window.matchMedia('(prefers-color-scheme: dark)');
+        this.darkMode = matchDark.matches;
+        this.$vuetify.theme.name = this.darkMode ? 'dark' : 'light';
+        matchDark.addEventListener('change', (e) => {
+          this.darkMode = e.matches;
+          this.$vuetify.theme.name = this.darkMode ? 'dark' : 'light';
+        });
+
+        setInterval(this.trackTime, 3000);
+      },
+      methods: {
+        extractId(url) {
+          const regex = /(?:youtube\.com.*(?:\?|&)v=|youtu\.be\/)([^&\n?#]+)/;
+          const match = url.match(regex);
+          return match ? match[1] : null;
+        },
+        getThumbnail(url) {
+          const id = this.extractId(url);
+          return `https://img.youtube.com/vi/${id}/hqdefault.jpg`;
+        },
+        addVideo() {
+          const id = this.extractId(this.newUrl);
+          if (!id) return alert("Invalid YouTube URL");
+          const newVideo = { url: this.newUrl, id, title: null, favorite: false, tags: this.newTags };
+          this.videos.push(newVideo);
+          this.saveToStorage();
+          this.newUrl = "";
+          this.newTags = [];
+        },
+        selectVideo(video) {
+          this.currentVideoId = video.id;
+          this.playerExpanded = true;
+          setTimeout(this.initYouTubePlayer, 100);
+        },
+        removeVideo(index) {
+          const wasCurrent = this.videos[index].id === this.currentVideoId;
+          this.videos.splice(index, 1);
+          if (wasCurrent) this.closeVideo();
+          this.saveToStorage();
+        },
+        toggleFavorite(video) {
+          video.favorite = !video.favorite;
+          this.saveToStorage();
+        },
+        toggleTheme() {
+          this.darkMode = !this.darkMode;
+          this.$vuetify.theme.name = this.darkMode ? 'dark' : 'light';
+        },
+        toggleMute() {
+          this.isMuted = !this.isMuted;
+          if (this.player && this.player.setVolume) {
+            this.player.setVolume(this.isMuted ? 0 : 100);
+          }
+        },
+        shuffleVideos() {
+          for (let i = this.videos.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [this.videos[i], this.videos[j]] = [this.videos[j], this.videos[i]];
+          }
+          this.saveToStorage();
+        },
+        saveToStorage() {
+          localStorage.setItem("yt_playlist", JSON.stringify(this.videos));
+        },
+        loadFromStorage() {
+          const data = localStorage.getItem("yt_playlist");
+          if (data) this.videos = JSON.parse(data);
+        },
+        exportPlaylist() {
+          const blob = new Blob([JSON.stringify(this.videos, null, 2)], { type: "application/json" });
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "youtube_playlist.json";
+          a.click();
+        },
+        handleImport() {
+          try {
+            const parsed = JSON.parse(this.importData);
+            parsed.forEach(v => { if (!v.id) v.id = this.extractId(v.url); });
+            this.videos = parsed;
+            this.saveToStorage();
+            this.importing = false;
+          } catch {
+            alert("Invalid JSON");
+          }
+        },
+        closeVideo() {
+          this.currentVideoId = null;
+          this.playerExpanded = true;
+          if (this.player && this.player.destroy) this.player.destroy();
+          this.player = null;
+        },
+        initYouTubePlayer() {
+          if (this.player) {
+            this.player.loadVideoById(this.currentVideoId);
+            return;
+          }
+
+          this.player = new YT.Player("yt-player", {
+            videoId: this.currentVideoId,
+            playerVars: {
+              autoplay: 1,
+              controls: 0,
+              rel: 0,
+              modestbranding: 1,
+            },
+            events: {
+              onReady: (e) => {
+                const time = this.lastTimestamps[this.currentVideoId] || 0;
+                if (time > 0) e.target.seekTo(time);
+                e.target.setVolume(this.isMuted ? 0 : 100);
+              },
+              onStateChange: (e) => {
+                if (e.data === YT.PlayerState.ENDED) this.playNext();
+              }
+            }
+          });
+        },
+        playNext() {
+          const index = this.videos.findIndex(v => v.id === this.currentVideoId);
+          const next = this.videos[index + 1];
+          if (next) this.selectVideo(next);
+        },
+        trackTime() {
+          if (this.player && this.player.getCurrentTime) {
+            const time = Math.floor(this.player.getCurrentTime());
+            this.lastTimestamps[this.currentVideoId] = time;
+            localStorage.setItem('yt_last_times', JSON.stringify(this.lastTimestamps));
+          }
+        }
+      }
+    });
+
+    app.use(vuetify);
+    app.config.globalProperties.$vuetify = vuetify.framework; // ✅ Needed for theme toggle
+    app.mount("#app");
+  </script>
+</body>
+</html>
