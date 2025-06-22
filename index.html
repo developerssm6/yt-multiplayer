@@ -1,291 +1,274 @@
+<!-- Save as index.html -->
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8" />
-  <title>YouTube Playlist Pro</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link href="https://cdn.jsdelivr.net/npm/vuetify@3.5.13/dist/vuetify.min.css" rel="stylesheet" />
-  <style>
-    html, body, #app {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      width: 100%;
-    }
-    .hoverable-card {
-      cursor: pointer;
-      transition: transform 0.2s;
-    }
-    .hoverable-card:hover {
-      transform: scale(1.02);
-    }
-    #yt-player {
-      width: 100%;
-      height: 100%;
-    }
-  </style>
+    <meta charset="UTF-8" />
+    <title>YouTube Playlist</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link href="https://cdn.jsdelivr.net/npm/vuetify@3.5.13/dist/vuetify.min.css" rel="stylesheet" />
+    <style>
+        html,
+        body,
+        #app {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+        }
+
+        .hoverable-card {
+            cursor: pointer;
+            transition: transform 0.2s;
+            aspect-ratio: 1 / 1;
+        }
+
+        .hoverable-card {
+            cursor: pointer;
+            transition: transform 0.2s;
+            aspect-ratio: 1 / 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+
+        .hoverable-card:hover {
+            transform: scale(1.02);
+        }
+
+        #yt-player {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
 </head>
 
 <body>
-  <div id="app">
-    <v-app>
-      <v-main>
-        <v-container fluid class="pa-2">
-          <!-- Controls -->
-          <v-row class="mb-2" align="center">
-            <v-col cols="12" md="6">
-              <v-text-field v-model="newUrl" label="Add YouTube URL" @keyup.enter="addVideo" clearable density="compact" prepend-inner-icon="mdi-youtube"></v-text-field>
-              <v-combobox v-model="newTags" label="Tags" multiple clearable chips small-chips class="mt-2"></v-combobox>
-            </v-col>
-            <v-col cols="12" md="6" class="d-flex flex-wrap gap-2 justify-end">
-              <v-btn @click="addVideo" color="primary">Add</v-btn>
-              <v-btn @click="toggleTheme">Toggle Dark</v-btn>
-              <v-btn @click="shuffleVideos">Shuffle</v-btn>
-              <v-btn @click="toggleMute">{{ isMuted ? 'Unmute' : 'Mute' }}</v-btn>
-              <v-btn @click="exportPlaylist">Export</v-btn>
-              <v-btn @click="importing = true">Import</v-btn>
-              <v-btn v-if="currentVideoId && !playerExpanded" @click="playerExpanded = true">Expand</v-btn>
-            </v-col>
-          </v-row>
+    <div id="app">
+        <v-app>
+            <v-layout>
+                <!-- App Bar -->
+                <v-app-bar color="teal-darken-4" image="https://picsum.photos/1920/1080?random">
+                    <template v-slot:image>
+                        <v-img gradient="to top right, rgba(19,84,122,.8), rgba(128,208,199,.8)"></v-img>
+                    </template>
+                    <v-app-bar-title>YouTube Playlist</v-app-bar-title>
+                    <v-text-field v-model="url" label="Paste URL" hide-details="auto" @keyup.enter="add"
+                        variant="outlined" density="compact" prepend-inner-icon="mdi-youtube" class="mx-4"
+                        style="max-width: 250px;"></v-text-field>
+                    <v-btn icon @click="add" title="Add">➕</v-btn>
+                    <v-btn icon @click="toggleTheme" title="Theme">🎨</v-btn>
+                    <v-btn icon @click="shuffle" title="Shuffle">🔀</v-btn>
+                    <v-btn icon @click="mute" title="Mute">{{ muted ? '🔇' : '🔊' }}</v-btn>
+                    <v-btn icon @click="exportList" title="Export">📤</v-btn>
+                    <v-btn icon @click="importing = true" title="Import">📥</v-btn>
+                </v-app-bar>
 
-          <!-- Video Player -->
-          <v-sheet
-            v-if="currentVideoId"
-            :style="playerExpanded 
-              ? 'position: fixed; inset: 0; z-index: 999; background-color: black;' 
-              : 'position: fixed; bottom: 16px; right: 16px; width: 320px; height: 180px; z-index: 998; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.5); background-color: black;'"
-          >
-            <div id="yt-player"></div>
-            <v-row
-              v-if="playerExpanded"
-              class="pa-2 justify-end"
-              style="position: absolute; top: 0; right: 0; background: rgba(0,0,0,0.5);"
-            >
-              <v-btn variant="text" @click="playerExpanded = false" color="blue">Minimize</v-btn>
-              <v-btn variant="text" color="red" @click="closeVideo">Close</v-btn>
-            </v-row>
-          </v-sheet>
+                <!-- Main Content -->
+                <v-main>
+                    <v-container fluid>
 
-          <!-- Playlist -->
-          <draggable v-model="videos" item-key="url" handle=".drag-handle" class="d-flex flex-wrap">
-            <template #item="{ element, index }">
-              <v-card class="ma-2 hoverable-card" width="260" elevation="3" @click="selectVideo(element)">
-                <v-img :src="getThumbnail(element.url)" height="140"></v-img>
-                <v-card-title class="text-truncate" style="font-size: 0.9rem">
-                  {{ element.title || element.id }}
-                </v-card-title>
-                <v-card-subtitle v-if="element.tags && element.tags.length" class="px-2">
-                  <v-chip v-for="tag in element.tags" :key="tag" size="x-small" class="ma-1" color="blue-lighten-3">
-                    {{ tag }}
-                  </v-chip>
-                </v-card-subtitle>
-                <v-card-actions class="justify-space-between">
-                  <span class="drag-handle" style="cursor: move; color: grey;">Drag</span>
-                  <v-btn size="small" @click.stop="toggleFavorite(element)" color="yellow">{{ element.favorite ? '★' : '☆' }}</v-btn>
-                  <v-btn size="small" @click.stop="removeVideo(index)" color="red">Delete</v-btn>
-                </v-card-actions>
-              </v-card>
-            </template>
-          </draggable>
-        </v-container>
 
-        <!-- Import Dialog -->
-        <v-dialog v-model="importing" width="600">
-          <v-card>
-            <v-card-title>Import Playlist JSON</v-card-title>
-            <v-card-text>
-              <v-textarea v-model="importData" label="Paste JSON here" rows="6"></v-textarea>
-            </v-card-text>
-            <v-card-actions>
-              <v-btn color="primary" @click="handleImport">Import</v-btn>
-              <v-spacer></v-spacer>
-              <v-btn text @click="importing = false">Cancel</v-btn>
-            </v-card-actions>
-          </v-card>
-        </v-dialog>
-      </v-main>
-    </v-app>
-  </div>
+                        <draggable v-model="list" item-key="url" handle=".drag" class="d-flex flex-wrap">
+                            <template #item="{ element, index }">
+                                <v-card class="ma-2 d-flex flex-column justify-space-between" min-width="240px"
+                                    min-height="240" elevation="3">
 
-  <!-- Scripts -->
-  <script src="https://cdn.jsdelivr.net/npm/vue@3.4.27/dist/vue.global.prod.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/vuetify@3.5.13/dist/vuetify.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/vuedraggable@4.1.0/dist/vuedraggable.umd.min.js"></script>
-  <script src="https://www.youtube.com/iframe_api"></script>
+                                    <!-- Image (click to play) -->
+                                    <v-img :src="thumb(element.url)" aspect-ratio="1" cover @click="play(element)"
+                                        class="hoverable-card"></v-img>
 
-  <script>
-    const { createApp } = Vue;
-    const { createVuetify } = Vuetify;
-    const draggable = window.vuedraggable;
+                                    <!-- Title -->
+                                    <v-card-title class="text-truncate px-2 pt-2 pb-1"
+                                        style="font-size: 0.8rem; height: 36px;">
+                                        {{ element.title || element.id }}
+                                    </v-card-title>
 
-    const vuetify = createVuetify({
-      theme: {
-        defaultTheme: 'light',
-        themes: {
-          light: { dark: false },
-          dark: { dark: true },
-        }
-      }
-    });
+                                    <!-- Actions -->
+                                    <v-card-actions class="px-2 py-1 d-flex justify-space-between"
+                                        style="min-height: 36px;">
+                                        <span class="drag" style="cursor: move; color: grey;">⠿</span>
+                                        <v-btn icon size="x-small"
+                                            @click.stop="element.favorite = !element.favorite; save()">
+                                            <span>{{ element.favorite ? '★' : '☆' }}</span>
+                                        </v-btn>
+                                        <v-btn icon size="x-small" color="red"
+                                            @click.stop="list.splice(index, 1); save()">
+                                            🗑
+                                        </v-btn>
+                                    </v-card-actions>
+                                </v-card>
+                            </template>
+                        </draggable>
 
-    const app = createApp({
-      components: { draggable },
-      data() {
-        return {
-          newUrl: "",
-          newTags: [],
-          videos: [],
-          currentVideoId: null,
-          playerExpanded: true,
-          darkMode: false,
-          isMuted: false,
-          importing: false,
-          importData: "",
-          player: null,
-          lastTimestamps: {},
-        };
-      },
-      mounted() {
-        this.loadFromStorage();
-        this.lastTimestamps = JSON.parse(localStorage.getItem('yt_last_times') || '{}');
 
-        // Auto dark mode
-        const matchDark = window.matchMedia('(prefers-color-scheme: dark)');
-        this.darkMode = matchDark.matches;
-        this.$vuetify.theme.name = this.darkMode ? 'dark' : 'light';
-        matchDark.addEventListener('change', (e) => {
-          this.darkMode = e.matches;
-          this.$vuetify.theme.name = this.darkMode ? 'dark' : 'light';
-        });
 
-        setInterval(this.trackTime, 3000);
-      },
-      methods: {
-        extractId(url) {
-          const regex = /(?:youtube\.com.*(?:\?|&)v=|youtu\.be\/)([^&\n?#]+)/;
-          const match = url.match(regex);
-          return match ? match[1] : null;
-        },
-        getThumbnail(url) {
-          const id = this.extractId(url);
-          return `https://img.youtube.com/vi/${id}/hqdefault.jpg`;
-        },
-        addVideo() {
-          const id = this.extractId(this.newUrl);
-          if (!id) return alert("Invalid YouTube URL");
-          const newVideo = { url: this.newUrl, id, title: null, favorite: false, tags: this.newTags };
-          this.videos.push(newVideo);
-          this.saveToStorage();
-          this.newUrl = "";
-          this.newTags = [];
-        },
-        selectVideo(video) {
-          this.currentVideoId = video.id;
-          this.playerExpanded = true;
-          setTimeout(this.initYouTubePlayer, 100);
-        },
-        removeVideo(index) {
-          const wasCurrent = this.videos[index].id === this.currentVideoId;
-          this.videos.splice(index, 1);
-          if (wasCurrent) this.closeVideo();
-          this.saveToStorage();
-        },
-        toggleFavorite(video) {
-          video.favorite = !video.favorite;
-          this.saveToStorage();
-        },
-        toggleTheme() {
-          this.darkMode = !this.darkMode;
-          this.$vuetify.theme.name = this.darkMode ? 'dark' : 'light';
-        },
-        toggleMute() {
-          this.isMuted = !this.isMuted;
-          if (this.player && this.player.setVolume) {
-            this.player.setVolume(this.isMuted ? 0 : 100);
-          }
-        },
-        shuffleVideos() {
-          for (let i = this.videos.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [this.videos[i], this.videos[j]] = [this.videos[j], this.videos[i]];
-          }
-          this.saveToStorage();
-        },
-        saveToStorage() {
-          localStorage.setItem("yt_playlist", JSON.stringify(this.videos));
-        },
-        loadFromStorage() {
-          const data = localStorage.getItem("yt_playlist");
-          if (data) this.videos = JSON.parse(data);
-        },
-        exportPlaylist() {
-          const blob = new Blob([JSON.stringify(this.videos, null, 2)], { type: "application/json" });
-          const a = document.createElement("a");
-          a.href = URL.createObjectURL(blob);
-          a.download = "youtube_playlist.json";
-          a.click();
-        },
-        handleImport() {
-          try {
-            const parsed = JSON.parse(this.importData);
-            parsed.forEach(v => { if (!v.id) v.id = this.extractId(v.url); });
-            this.videos = parsed;
-            this.saveToStorage();
-            this.importing = false;
-          } catch {
-            alert("Invalid JSON");
-          }
-        },
-        closeVideo() {
-          this.currentVideoId = null;
-          this.playerExpanded = true;
-          if (this.player && this.player.destroy) this.player.destroy();
-          this.player = null;
-        },
-        initYouTubePlayer() {
-          if (this.player) {
-            this.player.loadVideoById(this.currentVideoId);
-            return;
-          }
+                    </v-container>
+                </v-main>
+            </v-layout>
 
-          this.player = new YT.Player("yt-player", {
-            videoId: this.currentVideoId,
-            playerVars: {
-              autoplay: 1,
-              rel: 0,
-              modestbranding: 1,
+            <!-- Floating Player -->
+            <v-sheet v-if="current"
+                :style="expanded 
+          ? 'position: fixed; inset: 0; z-index: 999; background: black;' 
+          : 'position: fixed; bottom: 16px; right: 16px; width: 320px; height: 180px; z-index: 998; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.5); background: black;'">
+                <div id="yt-player"></div>
+                <v-row v-if="expanded" class="pa-2 justify-end"
+                    style="position: absolute; top: 0; right: 0; background: rgba(0,0,0,0.5);">
+                    <v-btn variant="text" @click="expanded = false" color="blue">Min</v-btn>
+                    <v-btn variant="text" color="red" @click="close">Close</v-btn>
+                </v-row>
+            </v-sheet>
+
+            <!-- Import Dialog -->
+            <v-dialog v-model="importing" width="600">
+                <v-card>
+                    <v-card-title>Import Playlist JSON</v-card-title>
+                    <v-card-text>
+                        <v-textarea v-model="importData" label="Paste JSON here" rows="6"></v-textarea>
+                    </v-card-text>
+                    <v-card-actions>
+                        <v-btn color="primary" @click="doImport">Import</v-btn>
+                        <v-spacer></v-spacer>
+                        <v-btn text @click="importing = false">Cancel</v-btn>
+                    </v-card-actions>
+                </v-card>
+            </v-dialog>
+        </v-app>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.4.27/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vuetify@3.5.13/dist/vuetify.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vuedraggable@4.1.0/dist/vuedraggable.umd.min.js"></script>
+    <script src="https://www.youtube.com/iframe_api"></script>
+
+    <script>
+        const { createApp } = Vue;
+        const { createVuetify } = Vuetify;
+        const draggable = window.vuedraggable;
+        const vuetify = createVuetify();
+
+        createApp({
+            components: { draggable },
+            data() {
+                return {
+                    url: "", list: [], current: null, expanded: true, muted: false,
+                    importing: false, importData: "", player: null, timestamps: {},
+                    dark: false,
+                };
             },
-            events: {
-              onReady: (e) => {
-                const time = this.lastTimestamps[this.currentVideoId] || 0;
-                if (time > 0) e.target.seekTo(time);
-                e.target.setVolume(this.isMuted ? 0 : 100);
-              },
-              onStateChange: (e) => {
-                if (e.data === YT.PlayerState.ENDED) this.playNext();
-              }
+            mounted() {
+                this.list = JSON.parse(localStorage.getItem("yt_list") || "[]");
+                this.timestamps = JSON.parse(localStorage.getItem("yt_time") || "{}");
+                const savedTheme = localStorage.getItem("theme_dark");
+                if (savedTheme !== null) {
+                    this.dark = JSON.parse(savedTheme);
+                } else {
+                    this.dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+                    localStorage.setItem("theme_dark", this.dark);
+                }
+                this.$vuetify.theme.name = this.dark ? "dark" : "light";
+                setInterval(this.track, 3000);
+            },
+            methods: {
+                id(url) {
+                    const m = url.match(/(?:youtube\.com.*[?&]v=|youtu\.be\/)([^&\n?#]+)/);
+                    return m ? m[1] : null;
+                },
+                thumb(url) {
+                    const i = this.id(url);
+                    return `https://img.youtube.com/vi/${i}/hqdefault.jpg`;
+                },
+                add() {
+                    const i = this.id(this.url);
+                    if (!i) return alert("Invalid URL");
+                    if (this.list.some(v => v.id === i)) return this.url = "";
+                    this.list.push({ url: this.url, id: i, favorite: false });
+                    this.url = ""; this.save();
+                },
+                play(v) {
+                    this.current = v.id;
+                    this.expanded = true;
+                    setTimeout(this.initPlayer, 100);
+                },
+                close() {
+                    this.current = null;
+                    if (this.player?.destroy) this.player.destroy();
+                    this.player = null;
+                },
+                toggleTheme() {
+                    this.dark = !this.dark;
+                    this.$vuetify.theme.name = this.dark ? "dark" : "light";
+                    localStorage.setItem("theme_dark", this.dark);
+                },
+                mute() {
+                    this.muted = !this.muted;
+                    if (this.player?.setVolume) this.player.setVolume(this.muted ? 0 : 100);
+                },
+                shuffle() {
+                    for (let i = this.list.length - 1; i > 0; i--) {
+                        const j = Math.floor(Math.random() * (i + 1));
+                        [this.list[i], this.list[j]] = [this.list[j], this.list[i]];
+                    }
+                    this.save();
+                },
+                save() {
+                    localStorage.setItem("yt_list", JSON.stringify(this.list));
+                },
+                exportList() {
+                    const blob = new Blob([JSON.stringify(this.list, null, 2)], { type: "application/json" });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = "playlist.json";
+                    a.click();
+                },
+                doImport() {
+                    try {
+                        const parsed = JSON.parse(this.importData);
+                        parsed.forEach(v => v.id ??= this.id(v.url));
+                        const unique = parsed.filter(v => !this.list.some(e => e.id === v.id));
+                        this.list = [...this.list, ...unique];
+                        this.save();
+                        this.importing = false;
+                    } catch {
+                        alert("Invalid JSON");
+                    }
+                },
+                initPlayer() {
+                    if (this.player) return this.player.loadVideoById(this.current);
+                    this.player = new YT.Player("yt-player", {
+                        videoId: this.current,
+                        playerVars: { autoplay: 1, modestbranding: 1, rel: 0 },
+                        events: {
+                            onReady: e => {
+                                const t = this.timestamps[this.current] || 0;
+                                if (t > 0) e.target.seekTo(t);
+                                e.target.setVolume(this.muted ? 0 : 100);
+                            },
+                            onStateChange: e => {
+                                if (e.data === YT.PlayerState.ENDED) this.next();
+                            }
+                        }
+                    });
+                },
+                next() {
+                    const i = this.list.findIndex(v => v.id === this.current);
+                    const n = this.list[i + 1];
+                    if (n) this.play(n);
+                },
+                track() {
+                    if (this.player?.getCurrentTime) {
+                        const t = Math.floor(this.player.getCurrentTime());
+                        this.timestamps[this.current] = t;
+                        localStorage.setItem("yt_time", JSON.stringify(this.timestamps));
+                    }
+                }
             }
-          });
-        },
-        playNext() {
-          const index = this.videos.findIndex(v => v.id === this.currentVideoId);
-          const next = this.videos[index + 1];
-          if (next) this.selectVideo(next);
-        },
-        trackTime() {
-          if (this.player && this.player.getCurrentTime) {
-            const time = Math.floor(this.player.getCurrentTime());
-            this.lastTimestamps[this.currentVideoId] = time;
-            localStorage.setItem('yt_last_times', JSON.stringify(this.lastTimestamps));
-          }
-        }
-      }
-    });
-
-    app.use(vuetify);
-    app.config.globalProperties.$vuetify = vuetify.framework; // ✅ Needed for theme toggle
-    app.mount("#app");
-  </script>
+        }).use(vuetify).mount("#app");
+    </script>
 </body>
+
 </html>
